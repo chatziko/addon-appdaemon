@@ -25,23 +25,73 @@ if ! bashio::fs.file_exists '/config/appdaemon/appdaemon.yaml'; then
     bashio::exit.nok
 fi
 
+# clear an old package cache if caching is disabled
+if bashio::config.false 'cache_packages'; then
+    rm -rf /data/package-cache
+fi
+
 # Install user configured/requested packages
 if bashio::config.has_value 'system_packages'; then
-    apk update \
-        || bashio::exit.nok 'Failed updating Alpine packages repository indexes'
+    packages=$(bashio::config 'system_packages')
 
-    for package in $(bashio::config 'system_packages'); do
-        apk add "$package" \
-            || bashio::exit.nok "Failed installing package ${package}"
-    done
+    if bashio::config.false 'cache_packages'; then
+        apk update \
+            || bashio::exit.nok 'Failed updating Alpine packages repository indexes'
+
+        for package in $packages; do
+            apk add "$package" \
+                || bashio::exit.nok "Failed installing package ${package}"
+        done
+    else # caching enabled
+        # Check if cache is available and tagged with the exact same addon version and list of packages!
+        cache=/data/package-cache/apk/
+        tag="addon-version: $(bashio::addon.version) packages: $packages"
+
+        if [ ! -f $cache/tag ] || [ "$tag" != "$(cat $cache/tag)" ]; then
+            # Cache not available or wrongly tagged. Re-create it.
+            rm -rf $cache && mkdir -p $cache && cd $cache
+            apk update \
+                || bashio::exit.nok 'Failed updating Alpine packages repository indexes'
+            apk fetch -R $packages \
+                || bashio::exit.nok "Failed downloading packages ${packages}"
+            printf "%s" "$tag" > tag      # store the tag
+        fi
+
+        # Install packages from cache.
+        apk add --no-network $cache/*.apk \
+            || (rm -rf $cache;        # delete cache in case of error
+                bashio::exit.nok "Failed installing packages ${packages}")
+    fi
 fi
 
 # Install user configured/requested Python packages
 if bashio::config.has_value 'python_packages'; then
-    for package in $(bashio::config 'python_packages'); do
-        pip3 install "$package" \
-            || bashio::exit.nok "Failed installing package ${package}"
-    done
+    packages=$(bashio::config 'python_packages')
+
+    if bashio::config.false 'cache_packages'; then
+        for package in $packages; do
+            pip3 install "$package" \
+                || bashio::exit.nok "Failed installing package ${package}"
+        done
+    else # cache enabled
+        # Check if cache is available and tagged with the exact same addon version and list of packages!
+        cache=/data/package-cache/pip/
+        tag="addon-version: $(bashio::addon.version) packages: $packages"
+
+        if [ ! -f $cache/tag ] || [ "$tag" != "$(cat $cache/tag)" ]; then
+            # Cache not available or wrongly tagged. Re-create it.
+            rm -rf $cache && mkdir -p $cache && cd $cache
+            pip download $packages \
+                || bashio::exit.nok "Failed downloading packages ${packages}"
+            printf "%s" "$tag" > tag      # store the tag
+        fi
+
+        # Install packages from cache.
+        # HA sets its own PIP_FIND_LINKS, so we need to replace it! (instead of using --find-links)
+        PIP_FIND_LINKS=$cache pip install --no-index $packages \
+            || (rm -rf $cache;        # delete cache in case of error
+                bashio::exit.nok "Failed installing packages ${packages}")
+    fi
 fi
 
 # Executes user configured/requested commands on startup

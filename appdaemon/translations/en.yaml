@@ -14,6 +14,11 @@ configuration:
     description: >-
       Allows you to specificy a list of additional Python packages to be
       installed before AppDaemon starts.
+  cache_packages:
+    name: Cache packages
+    description: >-
+      Cache system and python packages when they are installed for the first time, so
+      that they can be installed without internet connection on future restarts.
   init_commands:
     name: Init commands
     description: >-

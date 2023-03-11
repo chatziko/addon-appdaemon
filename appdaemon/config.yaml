@@ -27,6 +27,7 @@ map:
 options:
   system_packages: []
   python_packages: []
+  cache_packages: false
   init_commands: []
 schema:
   log_level: list(trace|debug|info|notice|warning|error|fatal)?
@@ -34,5 +35,6 @@ schema:
     - str
   python_packages:
     - str
+  cache_packages: bool?
   init_commands:
     - str
